@@ -1,0 +1,226 @@
+---
+title: "Assignment_week_12"
+name: Kristoffer Segerstrøm
+date: "Kristoffer Segerstroem 2025-03-21"
+output: pdf_document
+---
+
+```{r setup, include = TRUE}
+knitr::opts_chunk$set(echo = TRUE,
+                      warning = TRUE,
+                      message = TRUE)
+
+library(tidyverse)
+
+# For text mining:
+library(pdftools)  # Used to extract text from PDF files
+library(tidytext)  # Facilitates text analysis by working with words in a 'tidy' format
+library(textdata)  # Contains various sentiment dictionaries
+library(ggwordcloud)  # Used to create word clouds
+
+```
+
+# Get the Game of Thrones text:
+```{r get-document}
+got_path <- "data/got.pdf"
+got_text <- pdf_text(got_path)  # Extracts text from the PDF file as a vector of strings (one per page)
+```
+
+# Some wrangling:
+```{r split-lines}
+got_df <- data.frame(got_text) %>% 
+  mutate(text_full = str_split(got_text, pattern = '\\n')) %>%  # Splits the text by line breaks
+  unnest(text_full) %>%  # 'Unnests' the listed text so each line becomes a row in the dataframe
+  mutate(text_full = str_trim(text_full))  # Removes leading and trailing spaces from each line
+```
+
+# Get the tokens (individual words) in tidy format
+```{r tokenize}
+got_tokens <- got_df %>% 
+  unnest_tokens(word, text_full)  # Splits the text into individual words (tokens), so each row contains a single word
+
+got_tokens
+```
+
+# Remove stop words:
+```{r stopwords}
+got_stop <- got_tokens %>% 
+  anti_join(stop_words) %>%  # Removes stop words (commonly used words like 'the', 'and', 'of') that do not carry analytical value
+  select(-got_text)  # Removes the original text column as it is no longer needed
+```
+
+# Count the words
+```{r count-words}
+got_stop %>% 
+  count(word) %>% 
+  arrange(-n)
+```
+
+# Word cloud of GoT words 
+```{r wordcloud-prep}
+got_top100 <- got_stop %>% 
+  count(word) %>%  # Counts the occurrences of each word
+  arrange(-n) %>%  # Sorts words by frequency
+  head(100)  # Keeps only the 100 most frequent words
+```
+```{r wordcloud}
+got_cloud <- ggplot(data = got_top100, aes(label = word)) +
+  geom_text_wordcloud() +  # Visualizes the words in a word cloud
+  theme_minimal()
+
+got_cloud
+```
+# Let's make the word cloud af star 
+
+```{r wordcloud-pro}
+ggplot(data = got_top100, aes(label = word, size = n)) +
+  geom_text_wordcloud_area(aes(color = n), shape = "star") +
+  scale_size_area(max_size = 12) +
+  scale_color_gradientn(colors = c("darkgreen","blue","red")) +
+  theme_minimal()
+```
+
+# Sentiment analysis with afinn:
+### "afinn": Words ranked from -5 (very negative) to +5 (very positive)
+```{r bind-afinn}
+got_afinn <- got_stop %>% 
+  inner_join(get_sentiments("afinn"))  # Matches words with sentiment scores from the AFINN lexicon (-5 to +5)
+```
+
+## The negative words
+```{r afinn}
+get_sentiments(lexicon = "afinn")
+# Note: may be prompted to download (yes)
+```
+## The positive words
+```{r afinn_2}
+library(tidytext)  
+afinn <- get_sentiments("afinn")  
+afinn_pos <- afinn %>% filter(value > 0) #finds the sentiments with a greater value than 0
+head(afinn_pos)
+```
+
+# Word association with NRC
+```{r nrc}
+get_sentiments(lexicon = "nrc")
+```
+
+# Plot sentiment scores:
+```{r count-afinn}
+got_afinn_hist <- got_afinn %>% 
+  count(value)  # Counts the number of words for each sentiment score
+
+ggplot(data = got_afinn_hist, aes(x = value, y = n)) +
+  geom_col(aes(fill = value)) +  # Visualizes sentiment scores with a bar chart
+  theme_bw()
+```
+# Investegate which words have a sentiment score of 2 (quite positive)
+```{r afinn-2}
+got_afinn2 <- got_afinn%>% 
+  filter(value == 2)
+got_afinn2%>% 
+  distinct(word)
+#These commandoes isolates the 2-score words
+```
+# Finding the unique 2-score words
+```{r afinn-2-more}
+unique(got_afinn2$word) #finds the unique words
+
+got_afinn2_n <- got_afinn2 %>% 
+  count(word, sort = TRUE) %>% 
+  mutate(word = fct_reorder(factor(word), n)) #set up for the ggplot
+
+
+ggplot(data = got_afinn2_n, aes(x = word, y = n)) +
+  geom_col() +
+  coord_flip() +
+  theme_bw()
+
+
+```
+### This was too big - I dont quite know how to cut down the amount of words
+
+
+# Let's find the median and mean of the sentiment of the words
+```{r summarize-afinn}
+got_summary <- got_afinn %>% 
+  summarize(
+    mean_score = mean(value),
+    median_score = median(value)
+  )
+
+print(got_summary)
+```
+### The words in the GoT.pdf are not quite as positive, as they have a median score of -1
+
+
+# NRC lexicon for sentiment analysis
+```{r bind-nrc}
+got_nrc <- got_stop %>% 
+  inner_join(get_sentiments("nrc"))  # Matches words with the NRC lexicon, which categorizes words into different emotions
+```
+
+## Before we do the sentiment analysis, I will find out, which words are excluded
+```{r check-exclusions}
+got_exclude <- got_stop %>% 
+  anti_join(get_sentiments("nrc")) #finds the excluded wrods
+
+got_exclude_n <- got_exclude %>% 
+  count(word, sort = TRUE) #counts the excluded words
+
+head(got_exclude_n) #shows the result
+```
+### Above are the excluded words 
+
+
+# Now we can continue analysing the sentiment
+```{r count-nrc}
+got_nrc_n <- got_nrc %>% 
+  count(sentiment, sort = TRUE)  # Counts how many words belong to each sentiment category
+
+ggplot(data = got_nrc_n, aes(x = sentiment, y = n, fill = sentiment)) +
+  geom_col() +  # Visualizes the results in a bar chart
+  theme_bw()
+```
+
+# Creating a bar plot of the top words per sentiment category
+
+```{r count-nrc_2}
+got_nrc_n5 <- got_nrc %>% 
+  count(word, sentiment, sort = TRUE) %>%  # Counts occurrences of each word categorized by sentiment
+  group_by(sentiment) %>%  # Groups by sentiment category
+  top_n(5) %>%  # Selects the top 5 most frequent words for each sentiment
+  ungroup()  # Removes grouping to allow further independent operations
+
+# Create a bar plot of the top words per sentiment category
+got_nrc_gg <- ggplot(data = got_nrc_n5, aes(x = reorder(word, n), y = n, fill = sentiment)) +
+  geom_col(show.legend = FALSE) +  # Creates a bar plot without legend
+  facet_wrap(~sentiment, ncol = 2, scales = "free") +  # Creates separate panels for each sentiment
+  coord_flip() +  # Rotates the bar chart for better readability
+  theme_minimal() +  # Applies a minimalistic theme
+  labs(x = "Word", y = "Count")  # Labels the axes
+
+# Show the plot
+got_nrc_gg
+```
+### I notice that the word "lord" is in many of the charts...
+```{r nrc-confidence}
+conf <- get_sentiments(lexicon = "nrc") %>% 
+  filter(word == "lord")
+
+# Yep, check it out:
+conf
+```
+### It was true
+
+# Answering the task 
+
+## My task 
+Taking this script as a point of departure, apply sentiment analysis on the Game of Thrones. You will find a pdf in the data folder. What are the most common meaningful words and what emotions do you expect will dominate this volume? Are there any terms that are similarly ambiguous to the 'confidence' above? 
+
+## My answer 
+Using this script, we applied sentiment analysis to Game of Thrones. The most common meaningful words likely include character names, titles (e.g., "king," "lord"), and thematic words such as "battle" or "death."
+
+In terms of emotions, we expect a dominance of fear, anger, and trust, as the book revolves around political intrigue, betrayal, and loyalty.
+
+An ambiguous term similar to "confidence" is "lord." It appears frequently but does not inherently convey a positive or negative sentiment—it depends on context.
